@@ -1,11 +1,12 @@
 {
   "$schema": "https://opencode.ai/config.json",
+
   "provider": {
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Ollama Remote",
+      "name": "Local Ollama",
       "options": {
-        "baseURL": "__OLLAMA_URL__"
+        "baseURL": "{env:OLLAMA_URL}"
       },
       "models": {
         "qwen3.8:27b-32k": {
@@ -16,9 +17,15 @@
           }
         }
       }
+    },
+
+    "openai": {
+      "options": {
+        "apiKey": "{env:OPENAI_API_KEY}"
+      }
     }
   },
-  "model": "ollama/qwen3.8:27b-32k",
+
   "permission": {
     "read": "allow",
     "edit": "allow",

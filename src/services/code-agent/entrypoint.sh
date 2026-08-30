@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-WORKSPACE="/workspace"
+WORK_ROOT="/work"
+WORKSPACE="${WORK_ROOT}/repo"
 CONFIG_FILE="${WORKSPACE}/opencode.json"
 
 log() {
@@ -161,6 +162,9 @@ export GH_TOKEN
 gh auth status >/dev/null 2>&1 \
     || fail "github-auth" "GH_TOKEN authentication failed"
 
+gh auth setup-git \
+    || fail "github-auth" "Failed to configure Git credentials"
+
 log "GitHub authentication OK"
 
 
@@ -238,6 +242,9 @@ cp \
     "$CONFIG_FILE" \
     || fail "configuration" "Failed to create OpenCode configuration"
 
+echo "/opencode.json" >> .git/info/exclude \
+    || fail "configuration" "Failed to exclude OpenCode configuration from Git"
+
 
 # ------------------------------------------------------------
 # Run coding agent
@@ -245,6 +252,9 @@ cp \
 
 log "Starting OpenCode"
 
+# The OpenCode exit code is handled explicitly below. Disable the global ERR
+# trap here so a non-zero agent exit is reported as an implementation failure.
+trap - ERR
 set +e
 
 env \
@@ -274,6 +284,7 @@ Rules:
 AGENT_EXIT="${PIPESTATUS[0]}"
 
 set -e
+trap 'fail "worker" "Unexpected worker failure"' ERR
 
 
 # ------------------------------------------------------------

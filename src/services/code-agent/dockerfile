@@ -56,7 +56,7 @@ COPY opencode.json.template /opt/sdlc/opencode.json.template
 
 RUN chmod +x /usr/local/bin/sdlc-agent
 
-WORKDIR /workspace
+WORKDIR /work
 
 # Fail the image build if the runtime is incomplete
 RUN dotnet --list-sdks \

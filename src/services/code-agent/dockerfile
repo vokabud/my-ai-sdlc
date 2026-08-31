@@ -1,0 +1,71 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0
+
+ARG OPENCODE_VERSION=1.18.21
+ARG GH_VERSION=2.97.0
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DOTNET_ROOT=/usr/share/dotnet
+ENV PATH="/usr/share/dotnet:${PATH}"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        git \
+        grep \
+        jq \
+        ripgrep \
+        findutils \
+        procps \
+        unzip \
+        xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# .NET 8 SDK side-by-side with .NET 10
+RUN curl -fsSL https://dot.net/v1/dotnet-install.sh \
+        -o /tmp/dotnet-install.sh \
+    && chmod +x /tmp/dotnet-install.sh \
+    && /tmp/dotnet-install.sh \
+        --channel 8.0 \
+        --install-dir /usr/share/dotnet \
+        --no-path \
+    && rm /tmp/dotnet-install.sh
+
+# Node.js 22
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# OpenCode
+RUN npm install -g "opencode-ai@${OPENCODE_VERSION}" \
+    && npm cache clean --force
+
+# GitHub CLI - pinned
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -fsSL \
+      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.tar.gz" \
+      -o /tmp/gh.tar.gz \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && mv "/tmp/gh_${GH_VERSION}_linux_${ARCH}/bin/gh" /usr/local/bin/gh \
+    && chmod +x /usr/local/bin/gh \
+    && rm -rf /tmp/gh*
+
+COPY entrypoint.sh /usr/local/bin/sdlc-agent
+COPY opencode.json.template /opt/sdlc/opencode.json.template
+
+RUN chmod +x /usr/local/bin/sdlc-agent
+
+WORKDIR /work
+
+# Fail the image build if the runtime is incomplete
+RUN dotnet --list-sdks \
+    && dotnet --list-runtimes \
+    && node --version \
+    && npm --version \
+    && git --version \
+    && gh --version \
+    && rg --version \
+    && opencode --version
+
+ENTRYPOINT ["/usr/local/bin/sdlc-agent"]

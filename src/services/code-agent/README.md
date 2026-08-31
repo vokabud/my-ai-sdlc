@@ -106,7 +106,7 @@ The value uses the OpenCode `provider/model` format.
 Examples:
 
 ```text
-ollama/qwen3.8:27b-32k
+ollama/qwen3.8:27b-64k
 openai/<model>
 ```
 
@@ -116,7 +116,7 @@ For example:
 
 ```text
 small/local task
-    -> ollama/qwen3.8:27b-32k
+    -> ollama/qwen3.8:27b-64k
 
 complex task
     -> openai/<model>
@@ -165,7 +165,7 @@ OpenCode model identifier.
 Example:
 
 ```text
-ollama/qwen3.8:27b-32k
+ollama/qwen3.8:27b-64k
 ```
 
 ### Ollama
@@ -220,12 +220,19 @@ Default:
 AI implementation: <TASK_ID>
 ```
 
+`LOG_LEVEL`
+
+Optional logging level. The default is `info`; the only allowed values are `info` and `debug`.
+
+At `info`, logs contain worker/OpenCode lifecycle messages and a concise metric summary. At `debug`, logs additionally contain sanitized OpenCode event metadata, temporary diagnostic paths, and metric diagnostics. Logs are written to stderr. Debug logging never intentionally prints credentials, prompts, target file contents, tool payloads, raw events, the raw session export, or captured OpenCode stderr. Failures report safe metadata such as the exit code, duration, and captured stderr byte/line counts.
+
 ## Build the worker
 
 From this directory:
 
 ```powershell
 podman build `
+  -f dockerfile `
   -t localhost/my-sdlc-agent:0.3 `
   .
 ```
@@ -234,6 +241,7 @@ To force a completely clean build:
 
 ```powershell
 podman build `
+  -f dockerfile `
   --no-cache `
   -t localhost/my-sdlc-agent:0.3 `
   .
@@ -318,11 +326,12 @@ podman run --rm `
   -e REPO="OWNER/REPOSITORY" `
   -e BASE_BRANCH="main" `
   -e TASK_ID="poc-local-001" `
-  -e MODEL="ollama/qwen3.8:27b-32k" `
+  -e MODEL="ollama/qwen3.8:27b-64k" `
   -e OLLAMA_URL="http://192.168.31.116:11434/v1" `
+  -e LOG_LEVEL="debug" `
   -e TASK="Implement the requested small test change. Inspect the repository first, follow existing conventions, and run the relevant build and tests." `
   localhost/my-sdlc-agent:0.3 `
-  implement
+  implement 1> result.json 2> worker.log
 ```
 
 Replace `OWNER/REPOSITORY` and the task text with the repository and test task you actually want to use.
@@ -341,6 +350,16 @@ clone
   -> create PR
   -> JSON result
 ```
+
+Validate the separate result stream and confirm that more than one LLM request was recorded:
+
+```powershell
+jq -e '.status == "success" and (.metrics.durationMs | type) == "number" and (.metrics.llmRequests > 1)' result.json
+```
+
+For a manual proof that `peakContextTokens` is a maximum rather than a sum, compare it with the exported session’s valid `step_finish` records. For each record calculate `input + cache.read + cache.write`; the reported peak must equal the largest per-request value, while `inputTokens` and `outputTokens` are the corresponding sums. Reasoning tokens are excluded.
+
+The Ollama smoke test is user-run/deferred because Ollama is currently unavailable in this environment.
 
 ## Manual end-to-end test with OpenAI
 
@@ -379,18 +398,39 @@ Example:
   "branch": "ai/AIEXEC-123",
   "commit": "abc123...",
   "pullRequest": "https://github.com/owner/repository/pull/123",
-  "model": "ollama/qwen3.8:27b-32k"
+  "model": "ollama/qwen3.8:27b-64k",
+  "metrics": {
+    "durationMs": 12345,
+    "peakContextTokens": 8192,
+    "inputTokens": 12000,
+    "outputTokens": 2400,
+    "llmRequests": 3
+  }
 }
 ```
 
-Human-readable worker logs are written to stderr.
+`durationMs` is measured from Linux `/proc/uptime`, so the supported container uses a monotonic clock that is unaffected by wall-clock adjustments. Its validity is checked before commit, push, or pull-request creation. A wall-clock fallback exists only for disposable non-Linux harnesses. The token fields are JSON `null` when complete, valid persisted usage is unavailable.
+
+Token metrics are calculated from valid `step_finish`/`step-finish` records in the persisted `opencode export <sessionID>` data:
+
+* per-request context = `input + cache.read + cache.write`;
+* `peakContextTokens` = maximum individual per-request context;
+* `inputTokens` = sum of `input`;
+* `outputTokens` = sum of `output`;
+* `llmRequests` = count of valid step-finish records.
+
+Reasoning tokens are excluded. Persisted `opencode export <sessionID>` data is authoritative. Live `opencode run --format json` output is used for session discovery and debug metadata and may omit the final `step_finish` record.
+
+Human-readable worker logs are written to stderr. Debug output is sanitized as described above.
+
+The pull-request body contains only deterministic worker metadata and a static execution/metrics summary. It does not publish the raw task prompt, OpenCode events, or captured OpenCode stderr.
 
 This distinction allows an orchestrator to treat:
 
 ```text
-stdout -> structured result
-stderr -> execution logs
-exit code -> process success/failure
+stdout -> exactly one final result
+stderr -> lifecycle and sanitized debug logs
+exit code -> success/failure
 ```
 
 ## Failed result
@@ -435,7 +475,7 @@ Never commit:
 
 GitHub credentials belong to the deterministic wrapper.
 
-Before OpenCode is launched, the worker removes `GH_TOKEN` and `GITHUB_TOKEN` from the child process environment.
+For every OpenCode CLI invocation (`run`, `session list`, and `export`), the worker removes `GH_TOKEN` and `GITHUB_TOKEN` from the child process environment.
 
 Provider credentials required for inference are necessarily available to the corresponding provider integration.
 

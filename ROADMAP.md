@@ -4,19 +4,6 @@ This roadmap captures the current direction of the AI SDLC platform. It is inten
 
 ## Now
 
-### Report code-agent execution metrics
-
-Extend the code-agent result with useful, inexpensive execution metrics:
-
-- total worker duration;
-- OpenCode execution duration;
-- configured model and context-window limit;
-- token or context usage when the runtime or provider exposes reliable data;
-- number of changed files and added/deleted lines;
-- verification commands executed and their outcomes, when this information can be captured reliably.
-
-Metrics should be grouped under a structured `metrics` object so the result contract can grow without adding many top-level fields. Unavailable measurements should be returned as `null` or omitted rather than estimated.
-
 ### Make the code agent aware of its context limit
 
 Accept the model context-window limit as a worker parameter, initially through an environment variable such as `MODEL_CONTEXT_LIMIT`.

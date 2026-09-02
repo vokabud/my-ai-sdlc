@@ -188,6 +188,20 @@ When `MODEL` starts with `openai/`, the following variable is required:
 
 ### Optional
 
+`MODEL_CONTEXT_LIMIT`
+
+Positive integer context-window limit in tokens for this specific model deployment.
+The worker includes it in the coding prompt as planning guidance. When the selected
+model already has a complete `limit` definition in `opencode.json.template`, as the
+local Qwen models do, the worker also overrides that model's OpenCode context limit.
+It does not create incomplete model definitions for catalog-backed providers.
+
+The inference provider remains responsible for enforcing the actual context window,
+so this value must not exceed the deployed model's real limit.
+
+When omitted, OpenCode uses its existing provider/model configuration. The worker
+reports the configured value separately from measured token usage.
+
 `BASE_BRANCH`
 
 Default:
@@ -399,6 +413,7 @@ Example:
   "commit": "abc123...",
   "pullRequest": "https://github.com/owner/repository/pull/123",
   "model": "ollama/qwen3.8:27b-64k",
+  "contextLimitTokens": 65536,
   "metrics": {
     "durationMs": 12345,
     "peakContextTokens": 8192,
@@ -408,6 +423,11 @@ Example:
   }
 }
 ```
+
+`contextLimitTokens` is configuration, not a measured metric. It is a JSON number
+when `MODEL_CONTEXT_LIMIT` is configured and `null` when the worker relies on
+OpenCode's provider/model defaults. `peakContextTokens` remains the measured maximum
+input-side context observed across individual model requests.
 
 `durationMs` is measured from Linux `/proc/uptime`, so the supported container uses a monotonic clock that is unaffected by wall-clock adjustments. Its validity is checked before commit, push, or pull-request creation. A wall-clock fallback exists only for disposable non-Linux harnesses. The token fields are JSON `null` when complete, valid persisted usage is unavailable.
 

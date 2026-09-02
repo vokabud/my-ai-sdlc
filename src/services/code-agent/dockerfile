@@ -53,8 +53,9 @@ RUN ARCH="$(dpkg --print-architecture)" \
 
 COPY entrypoint.sh /usr/local/bin/sdlc-agent
 COPY opencode.json.template /opt/sdlc/opencode.json.template
+COPY lib /opt/sdlc/lib
 
-RUN sed -i 's/\r$//' /usr/local/bin/sdlc-agent \
+RUN sed -i 's/\r$//' /usr/local/bin/sdlc-agent /opt/sdlc/lib/*.sh \
     && chmod +x /usr/local/bin/sdlc-agent
 
 WORKDIR /work

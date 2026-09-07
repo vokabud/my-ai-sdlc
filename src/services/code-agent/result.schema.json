@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/sdlc/code-agent-result-v1.json",
+  "title": "SDLC Code Agent Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "task", "execution", "delivery", "metrics", "error"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "status": {"enum": ["success", "failed"]},
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "repository", "baseBranch"],
+      "properties": {
+        "id": {"type": ["string", "null"], "minLength": 1},
+        "repository": {"type": ["string", "null"], "minLength": 1},
+        "baseBranch": {"type": ["string", "null"], "minLength": 1}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "contextLimitTokens"],
+      "properties": {
+        "model": {"type": ["string", "null"], "minLength": 1},
+        "contextLimitTokens": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "commit", "pullRequest"],
+      "properties": {
+        "branch": {"type": ["string", "null"], "minLength": 1},
+        "commit": {"type": ["string", "null"], "minLength": 1},
+        "pullRequest": {"type": ["string", "null"], "minLength": 1}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["durationMs", "peakContextTokens", "inputTokens", "outputTokens", "llmRequests"],
+      "properties": {
+        "durationMs": {"type": ["integer", "null"], "minimum": 0},
+        "peakContextTokens": {"type": ["integer", "null"], "minimum": 0},
+        "inputTokens": {"type": ["integer", "null"], "minimum": 0},
+        "outputTokens": {"type": ["integer", "null"], "minimum": 0},
+        "llmRequests": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "error": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stage", "message"],
+          "properties": {
+            "stage": {
+              "enum": ["configuration", "provider-connectivity", "github-authentication", "clone", "base-branch", "implementation-branch", "implementation", "commit", "push", "pull-request", "worker"]
+            },
+            "message": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "success"}}},
+      "then": {
+        "properties": {
+          "task": {"properties": {"id":{"type":"string"},"repository":{"type":"string"},"baseBranch":{"type":"string"}}},
+          "execution": {"properties": {"model":{"type":"string"}}},
+          "delivery": {"properties": {"branch":{"type":"string"},"commit":{"type":"string"},"pullRequest":{"type":"string"}}},
+          "metrics": {"properties": {"durationMs":{"type":"integer"}}},
+          "error": {"type": "null"}
+        }
+      },
+      "else": {"properties": {"error": {"type": "object"}}}
+    },
+    {
+      "if": {"properties": {"delivery": {"properties": {"branch": {"type": "string"}}}}},
+      "then": {"properties": {"delivery": {"properties": {"commit": {"type": "string"}}}}}
+    },
+    {
+      "if": {"properties": {"delivery": {"properties": {"pullRequest": {"type": "string"}}}}},
+      "then": {"properties": {"delivery": {"properties": {"branch": {"type": "string"},"commit": {"type": "string"}}}}}
+    }
+  ]
+}

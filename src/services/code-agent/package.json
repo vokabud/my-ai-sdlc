@@ -1,0 +1,7 @@
+{
+  "name": "sdlc-code-agent-contract-tests",
+  "private": true,
+  "devDependencies": {
+    "ajv-cli": "5.0.0"
+  }
+}

@@ -21,6 +21,8 @@ fi
 source "$SDLC_LIB_DIR/context-limit.sh"
 # shellcheck source=lib/metrics.sh
 source "$SDLC_LIB_DIR/metrics.sh"
+# shellcheck source=lib/result.sh
+source "$SDLC_LIB_DIR/result.sh"
 PEAK_CONTEXT_TOKENS=null
 INPUT_TOKENS=null
 OUTPUT_TOKENS=null
@@ -107,22 +109,8 @@ debug_opencode_events() {
 fail() {
     local stage="$1"
     local message="$2"
-
-    # Avoid triggering ERR trap recursively while exiting through fail().
     trap - ERR
-
-    jq -n \
-        --arg status "failed" \
-        --arg stage "$stage" \
-        --arg message "$message" \
-        --arg taskId "${TASK_ID:-unknown}" \
-        '{
-            status: $status,
-            taskId: $taskId,
-            stage: $stage,
-            error: $message
-        }'
-
+    result_emit_failure "$stage" "$message"
     exit 1
 }
 
@@ -178,9 +166,19 @@ Optional environment variables:
 EOF
 }
 
+LOG_LEVEL="${LOG_LEVEL:-info}"
+MODEL_CONTEXT_LIMIT="${MODEL_CONTEXT_LIMIT:-}"
+BASE_BRANCH="${BASE_BRANCH:-main}"
+
+result_init \
+    "${TASK_ID:-}" \
+    "${REPO:-}" \
+    "$BASE_BRANCH" \
+    "${MODEL:-}"
+
 if [[ "${1:-}" != "implement" ]]; then
     usage
-    exit 2
+    fail "configuration" "Unsupported command; expected 'implement'"
 fi
 
 
@@ -194,9 +192,6 @@ require_env TASK
 require_env GH_TOKEN
 require_env MODEL
 
-LOG_LEVEL="${LOG_LEVEL:-info}"
-MODEL_CONTEXT_LIMIT="${MODEL_CONTEXT_LIMIT:-}"
-
 if [[ "$LOG_LEVEL" != "info" && "$LOG_LEVEL" != "debug" ]]; then
     fail "configuration" "Unsupported LOG_LEVEL='$LOG_LEVEL'. Expected info or debug"
 fi
@@ -207,7 +202,10 @@ if ! validate_model_context_limit "$MODEL_CONTEXT_LIMIT"; then
         "MODEL_CONTEXT_LIMIT must be a positive integer when configured"
 fi
 
-BASE_BRANCH="${BASE_BRANCH:-main}"
+if [[ -n "$MODEL_CONTEXT_LIMIT" ]]; then
+    result_set_context_limit "$MODEL_CONTEXT_LIMIT"
+fi
+
 BRANCH="${BRANCH:-ai/${TASK_ID}}"
 COMMIT_MESSAGE="${COMMIT_MESSAGE:-AI implementation for ${TASK_ID}}"
 PR_TITLE="${PR_TITLE:-AI implementation: ${TASK_ID}}"
@@ -263,7 +261,7 @@ if [[ "$MODEL" == ollama/* ]]; then
         --max-time 10 \
         "${OLLAMA_URL%/}/models" \
         >/dev/null \
-        || fail "ollama" "Cannot reach Ollama at $OLLAMA_URL"
+        || fail "provider-connectivity" "Cannot reach Ollama at $OLLAMA_URL"
 
     log "Ollama is reachable"
 fi
@@ -278,11 +276,11 @@ log "Checking GitHub authentication"
 export GH_TOKEN
 
 gh auth status >/dev/null 2>&1 \
-    || fail "github-auth" "GH_TOKEN authentication failed"
+    || fail "github-authentication" "GH_TOKEN authentication failed"
 
 gh auth setup-git \
     >&2 \
-    || fail "github-auth" "Failed to configure Git credentials"
+    || fail "github-authentication" "Failed to configure Git credentials"
 
 log "GitHub authentication OK"
 
@@ -318,15 +316,15 @@ log "Checking out base branch '$BASE_BRANCH'"
 
 git fetch origin "$BASE_BRANCH" \
     >&2 \
-    || fail "git" "Failed to fetch base branch '$BASE_BRANCH'"
+    || fail "base-branch" "Failed to fetch base branch '$BASE_BRANCH'"
 
 git checkout "$BASE_BRANCH" \
     >&2 \
-    || fail "git" "Failed to checkout base branch '$BASE_BRANCH'"
+    || fail "base-branch" "Failed to checkout base branch '$BASE_BRANCH'"
 
 git reset --hard "origin/$BASE_BRANCH" \
     >&2 \
-    || fail "git" "Failed to reset to origin/$BASE_BRANCH"
+    || fail "base-branch" "Failed to reset to origin/$BASE_BRANCH"
 
 
 # ------------------------------------------------------------
@@ -340,7 +338,7 @@ if git ls-remote \
     "$BRANCH" \
     >/dev/null 2>&1
 then
-    fail "branch" "Remote branch '$BRANCH' already exists"
+    fail "implementation-branch" "Remote branch '$BRANCH' already exists"
 fi
 
 
@@ -352,7 +350,7 @@ log "Creating branch '$BRANCH'"
 
 git checkout -b "$BRANCH" \
     >&2 \
-    || fail "branch" "Failed to create branch '$BRANCH'"
+    || fail "implementation-branch" "Failed to create branch '$BRANCH'"
 
 
 # ------------------------------------------------------------
@@ -438,6 +436,13 @@ if [[ ! "$DURATION_MS" =~ ^[0-9]+$ ]]; then
 fi
 
 debug_opencode_events
+collect_opencode_metrics
+result_set_metrics \
+    "$DURATION_MS" \
+    "$PEAK_CONTEXT_TOKENS" \
+    "$INPUT_TOKENS" \
+    "$OUTPUT_TOKENS" \
+    "$LLM_REQUESTS"
 
 
 # ------------------------------------------------------------
@@ -455,7 +460,6 @@ if [[ "$AGENT_EXIT" -ne 0 ]]; then
 fi
 
 log "OpenCode completed successfully"
-collect_opencode_metrics
 
 
 # ------------------------------------------------------------
@@ -498,6 +502,7 @@ git commit -m "$COMMIT_MESSAGE" \
     || fail "commit" "Git commit failed"
 
 COMMIT_SHA="$(git rev-parse HEAD)"
+result_record_commit "$COMMIT_SHA"
 
 log "Created commit $COMMIT_SHA"
 
@@ -514,6 +519,8 @@ git push \
     "$BRANCH" \
     >&2 \
     || fail "push" "Git push failed"
+
+result_record_push "$BRANCH"
 
 
 # ------------------------------------------------------------
@@ -557,6 +564,8 @@ PR_URL="$(
         --body "$PR_BODY"
 )" || fail "pull-request" "Failed to create pull request"
 
+result_record_pull_request "$PR_URL"
+
 log "Pull request created: $PR_URL"
 
 
@@ -564,39 +573,4 @@ log "Pull request created: $PR_URL"
 # Return machine-readable result
 # ------------------------------------------------------------
 
-METRICS_JSON="$(jq -n \
-    --argjson durationMs "$DURATION_MS" \
-    --argjson peakContextTokens "${PEAK_CONTEXT_TOKENS:-null}" \
-    --argjson inputTokens "${INPUT_TOKENS:-null}" \
-    --argjson outputTokens "${OUTPUT_TOKENS:-null}" \
-    --argjson llmRequests "${LLM_REQUESTS:-null}" \
-    '{
-        durationMs: $durationMs,
-        peakContextTokens: $peakContextTokens,
-        inputTokens: $inputTokens,
-        outputTokens: $outputTokens,
-        llmRequests: $llmRequests
-    }'
-)"
-
-jq -n \
-    --arg status "success" \
-    --arg taskId "$TASK_ID" \
-    --arg repo "$REPO" \
-    --arg branch "$BRANCH" \
-    --arg commit "$COMMIT_SHA" \
-    --arg pullRequest "$PR_URL" \
-    --arg model "$MODEL" \
-    --argjson contextLimitTokens "$(context_limit_json_value "$MODEL_CONTEXT_LIMIT")" \
-    --argjson metrics "$METRICS_JSON" \
-    '{
-        status: $status,
-        taskId: $taskId,
-        repository: $repo,
-        branch: $branch,
-        commit: $commit,
-        pullRequest: $pullRequest,
-        model: $model,
-        contextLimitTokens: $contextLimitTokens,
-        metrics: $metrics
-    }'
+result_emit_success

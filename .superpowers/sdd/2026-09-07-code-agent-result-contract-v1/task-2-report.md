@@ -33,3 +33,30 @@ AJV emits existing strict-mode warnings for conditional `properties` fragments i
 ## Commit
 
 `c08e642 feat: add versioned result renderer`
+
+## Fix round 1
+
+### Changes
+
+- Enforced monotonic delivery transitions: commits must be recorded before pushes, and both commit and branch must exist before a pull request can be recorded. Invalid transition calls return nonzero and leave state unchanged.
+- Added conservative failure-message redaction for token, API key, secret, password, authorization, bearer, and common provider token formats. Unknown failure stages retain the existing generic worker error.
+- Added focused tests for rejected push and pull-request ordering and for redacting valid-stage sensitive content.
+
+### Verification
+
+Exact command:
+
+```text
+C:\Program Files\Git\bin\bash.exe -lc 'cd /g/Solutions/my-ai-sdlc/.worktrees/result-contract-v1/src/services/code-agent; bash tests/result-contract.test.sh >/tmp/result-contract-round1.log 2>&1; s1=$?; bash tests/result-schema.test.sh >/tmp/result-schema-round1.log 2>&1; s2=$?; tail -n 1 /tmp/result-contract-round1.log; tail -n 1 /tmp/result-schema-round1.log; exit $((s1+s2))'
+```
+
+Output:
+
+```text
+PASS: result contract tests
+PASS: result schema tests
+```
+
+Exit status: `0`.
+
+The new regression test was run before the fix and failed against the unfixed renderer because `result_record_push` accepted a branch without a commit. The same test then passed after the transition guards and redaction were implemented.

@@ -26,9 +26,26 @@ result_set_metrics() {
   RESULT_LLM_REQUESTS="$5"
 }
 
-result_record_commit() { RESULT_COMMIT="$1"; }
-result_record_push() { RESULT_BRANCH="$1"; }
-result_record_pull_request() { RESULT_PULL_REQUEST="$1"; }
+result_record_commit() {
+  if [[ -z "$1" ]]; then
+    return 1
+  fi
+  RESULT_COMMIT="$1"
+}
+
+result_record_push() {
+  if [[ -z "$RESULT_COMMIT" || -z "$1" ]]; then
+    return 1
+  fi
+  RESULT_BRANCH="$1"
+}
+
+result_record_pull_request() {
+  if [[ -z "$RESULT_COMMIT" || -z "$RESULT_BRANCH" || -z "$1" ]]; then
+    return 1
+  fi
+  RESULT_PULL_REQUEST="$1"
+}
 
 result_stage_is_valid() {
   case "$1" in
@@ -39,6 +56,12 @@ result_stage_is_valid() {
       return 1
       ;;
   esac
+}
+
+result_sanitize_message() {
+  printf '%s' "$1" | sed -E \
+    -e 's/(token|api[_-]?key|secret|password|authorization|bearer)[[:space:]]*[:=][[:space:]]*[^[:space:]]+/\1=[REDACTED]/Ig' \
+    -e 's/(sk|ghp|gho|github_pat)_[A-Za-z0-9_]+/[REDACTED]/g'
 }
 
 result_emit() {
@@ -103,6 +126,8 @@ result_emit_failure() {
   if ! result_stage_is_valid "$stage"; then
     stage="worker"
     message="Unexpected worker failure"
+  else
+    message="$(result_sanitize_message "$message")"
   fi
 
   result_emit "failed" "$stage" "$message"

@@ -61,6 +61,35 @@ jq -e '.delivery == {branch:null,commit:"abc123",pullRequest:null}' \
   "$TEST_ROOT/commit-failure.json" >/dev/null
 validate "$TEST_ROOT/commit-failure.json"
 
+invalid_push_json="$({
+  source "$SERVICE_DIR/lib/result.sh"
+  result_init "AIEXEC-123" "owner/repository" "main" "openai/test-model"
+  if result_record_push ai/AIEXEC-123; then
+    printf 'FAIL: push transition accepted without a commit\n' >&2
+    exit 1
+  fi
+  result_emit_failure "push" "Git push failed"
+})"
+printf '%s\n' "$invalid_push_json" > "$TEST_ROOT/invalid-push.json"
+jq -e '.delivery == {branch:null,commit:null,pullRequest:null}' \
+  "$TEST_ROOT/invalid-push.json" >/dev/null
+validate "$TEST_ROOT/invalid-push.json"
+
+invalid_pull_request_json="$({
+  source "$SERVICE_DIR/lib/result.sh"
+  result_init "AIEXEC-123" "owner/repository" "main" "openai/test-model"
+  result_record_commit abc123
+  if result_record_pull_request https://github.com/owner/repository/pull/1; then
+    printf 'FAIL: pull request transition accepted without a pushed branch\n' >&2
+    exit 1
+  fi
+  result_emit_failure "pull-request" "Pull request creation failed"
+})"
+printf '%s\n' "$invalid_pull_request_json" > "$TEST_ROOT/invalid-pull-request.json"
+jq -e '.delivery == {branch:null,commit:"abc123",pullRequest:null}' \
+  "$TEST_ROOT/invalid-pull-request.json" >/dev/null
+validate "$TEST_ROOT/invalid-pull-request.json"
+
 guarded_failure_json="$({
   source "$SERVICE_DIR/lib/result.sh"
   result_init "AIEXEC-123" "owner/repository" "main" "openai/test-model"
@@ -70,6 +99,16 @@ printf '%s\n' "$guarded_failure_json" > "$TEST_ROOT/guarded-failure.json"
 jq -e '.error == {stage:"worker",message:"Unexpected worker failure"}' \
   "$TEST_ROOT/guarded-failure.json" >/dev/null
 validate "$TEST_ROOT/guarded-failure.json"
+
+sanitized_failure_json="$({
+  source "$SERVICE_DIR/lib/result.sh"
+  result_init "AIEXEC-123" "owner/repository" "main" "openai/test-model"
+  result_emit_failure "implementation" "Provider returned token=sk-live-secret password=hunter2"
+})"
+printf '%s\n' "$sanitized_failure_json" > "$TEST_ROOT/sanitized-failure.json"
+jq -e '.error.message == "Provider returned token=[REDACTED] password=[REDACTED]"' \
+  "$TEST_ROOT/sanitized-failure.json" >/dev/null
+validate "$TEST_ROOT/sanitized-failure.json"
 
 zero_metrics_json="$({
   source "$SERVICE_DIR/lib/result.sh"

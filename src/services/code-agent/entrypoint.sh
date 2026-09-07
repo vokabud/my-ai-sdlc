@@ -252,7 +252,7 @@ fi
 # ------------------------------------------------------------
 
 if [[ "$MODEL" == ollama/* ]]; then
-    log "Checking Ollama at $OLLAMA_URL"
+    log "Checking Ollama provider connectivity"
 
     curl \
         --fail \
@@ -261,7 +261,7 @@ if [[ "$MODEL" == ollama/* ]]; then
         --max-time 10 \
         "${OLLAMA_URL%/}/models" \
         >/dev/null \
-        || fail "provider-connectivity" "Cannot reach Ollama at $OLLAMA_URL"
+        || fail "provider-connectivity" "Cannot reach configured Ollama endpoint"
 
     log "Ollama is reachable"
 fi
@@ -574,3 +574,4 @@ log "Pull request created: $PR_URL"
 # ------------------------------------------------------------
 
 result_emit_success
+exit 0

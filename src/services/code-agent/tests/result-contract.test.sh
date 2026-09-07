@@ -120,6 +120,16 @@ jq -e '.error.message == "Authorization: Bearer [REDACTED]; API key=[REDACTED]"'
   "$TEST_ROOT/conventional-credentials.json" >/dev/null
 validate "$TEST_ROOT/conventional-credentials.json"
 
+equality_credentials_json="$( {
+  source "$SERVICE_DIR/lib/result.sh"
+  result_init "AIEXEC-123" "owner/repository" "main" "openai/test-model"
+  result_emit_failure "implementation" "Authorization=visible-secret; Bearer=visible-secret"
+} )"
+printf '%s\n' "$equality_credentials_json" > "$TEST_ROOT/equality-credentials.json"
+jq -e '.error.message == "Authorization=[REDACTED]; Bearer=[REDACTED]"' \
+  "$TEST_ROOT/equality-credentials.json" >/dev/null
+validate "$TEST_ROOT/equality-credentials.json"
+
 zero_metrics_json="$({
   source "$SERVICE_DIR/lib/result.sh"
   result_init "AIEXEC-123" "owner/repository" "main" "openai/test-model"

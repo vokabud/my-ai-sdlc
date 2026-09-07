@@ -62,6 +62,7 @@ result_sanitize_message() {
   printf '%s' "$1" | sed -E \
     -e 's/(Authorization[[:space:]]*:[[:space:]]*)Bearer[[:space:]]+[^[:space:];,]+/\1Bearer [REDACTED]/Ig' \
     -e 's/(Bearer)[[:space:]]+[^[:space:];,]+/\1 [REDACTED]/Ig' \
+    -e 's/((Authorization|Bearer)[[:space:]]*=[[:space:]]*)[^[:space:];,]+/\1[REDACTED]/Ig' \
     -e 's/((token|api[_-]?[[:space:]]*key|secret|password)[[:space:]]*[:=][[:space:]]*)[^[:space:];,]+/\1[REDACTED]/Ig' \
     -e 's/(sk|ghp|gho|github_pat)_[A-Za-z0-9_]+/[REDACTED]/g'
 }

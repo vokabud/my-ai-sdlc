@@ -59,6 +59,32 @@ PASS: result schema tests
 
 Exit status: `0`.
 
+## Fix round 3
+
+### Changes
+
+- Restored redaction for `Authorization=...` and `Bearer=...` equality-form credentials without changing the existing `Authorization: Bearer ...`, standalone bearer, and spaced `API key=...` handling.
+- Added focused assertions for both equality forms.
+
+### Verification
+
+The new regression test was run before the sanitizer change and failed because both equality-form secrets remained visible.
+
+Exact command:
+
+```text
+C:\Program Files\Git\bin\bash.exe -lc 'cd /g/Solutions/my-ai-sdlc/.worktrees/result-contract-v1/src/services/code-agent; bash tests/result-contract.test.sh >/tmp/result-contract-round3.log 2>&1; s1=$?; bash tests/result-schema.test.sh >/tmp/result-schema-round3.log 2>&1; s2=$?; tail -n 1 /tmp/result-contract-round3.log; tail -n 1 /tmp/result-schema-round3.log; exit $((s1+s2))'
+```
+
+Output:
+
+```text
+PASS: result contract tests
+PASS: result schema tests
+```
+
+Exit status: `0`.
+
 The new regression test was run before the fix and failed against the unfixed renderer because `result_record_push` accepted a branch without a commit. The same test then passed after the transition guards and redaction were implemented.
 
 ## Fix round 2

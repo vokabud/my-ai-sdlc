@@ -110,6 +110,16 @@ jq -e '.error.message == "Provider returned token=[REDACTED] password=[REDACTED]
   "$TEST_ROOT/sanitized-failure.json" >/dev/null
 validate "$TEST_ROOT/sanitized-failure.json"
 
+conventional_credentials_json="$( {
+  source "$SERVICE_DIR/lib/result.sh"
+  result_init "AIEXEC-123" "owner/repository" "main" "openai/test-model"
+  result_emit_failure "implementation" "Authorization: Bearer arbitrary-secret; API key=visible-secret"
+} )"
+printf '%s\n' "$conventional_credentials_json" > "$TEST_ROOT/conventional-credentials.json"
+jq -e '.error.message == "Authorization: Bearer [REDACTED]; API key=[REDACTED]"' \
+  "$TEST_ROOT/conventional-credentials.json" >/dev/null
+validate "$TEST_ROOT/conventional-credentials.json"
+
 zero_metrics_json="$({
   source "$SERVICE_DIR/lib/result.sh"
   result_init "AIEXEC-123" "owner/repository" "main" "openai/test-model"

@@ -61,7 +61,18 @@ RUN sed -i 's/\r$//' /usr/local/bin/sdlc-agent /opt/sdlc/lib/*.sh \
 # Exercise result rendering with the jq version shipped in the worker image.
 RUN bash -c 'source /opt/sdlc/lib/result.sh \
     && result_init "AIEXEC-image-smoke" "owner/repository" "main" "openai/test-model" \
-    && result_emit_success | jq -e ".schemaVersion == 1 and .status == \"success\" and .error == null" >/dev/null \
+    && result_set_context_limit 65536 \
+    && result_set_metrics 42 30 20 10 1 \
+    && result_record_commit "abc123" \
+    && result_record_push "ai/AIEXEC-image-smoke" \
+    && result_record_pull_request "https://github.com/owner/repository/pull/1" \
+    && result_emit_success | jq -e ".schemaVersion == 1 \
+        and .status == \"success\" \
+        and .task == {id:\"AIEXEC-image-smoke\",repository:\"owner/repository\",baseBranch:\"main\"} \
+        and .execution == {model:\"openai/test-model\",contextLimitTokens:65536} \
+        and .delivery == {branch:\"ai/AIEXEC-image-smoke\",commit:\"abc123\",pullRequest:\"https://github.com/owner/repository/pull/1\"} \
+        and .metrics == {durationMs:42,peakContextTokens:30,inputTokens:20,outputTokens:10,llmRequests:1} \
+        and .error == null" >/dev/null \
     && result_emit_failure "worker" "Image smoke test" | jq -e ".schemaVersion == 1 and .status == \"failed\" and .error.stage == \"worker\"" >/dev/null'
 
 WORKDIR /work

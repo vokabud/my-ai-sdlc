@@ -398,40 +398,92 @@ podman run --rm `
 
 Replace `<MODEL>` with the OpenCode/OpenAI model configured for the test.
 
-## Successful result
+## Result contract v1
 
-The final standard output is intended to be consumed by the SDLC orchestrator.
-
-Example:
+The final standard output is a versioned JSON document intended for the SDLC orchestrator. A successful run exits with zero and emits a document such as:
 
 ```json
 {
+  "schemaVersion": 1,
   "status": "success",
-  "taskId": "AIEXEC-123",
-  "repository": "owner/repository",
-  "branch": "ai/AIEXEC-123",
-  "commit": "abc123...",
-  "pullRequest": "https://github.com/owner/repository/pull/123",
-  "model": "ollama/qwen3.8:27b-64k",
-  "contextLimitTokens": 65536,
+  "task": {
+    "id": "AIEXEC-123",
+    "repository": "owner/repository",
+    "baseBranch": "main"
+  },
+  "execution": {
+    "model": "ollama/qwen3.8:27b-64k",
+    "contextLimitTokens": 65536
+  },
+  "delivery": {
+    "branch": "ai/AIEXEC-123",
+    "commit": "abc123",
+    "pullRequest": "https://github.com/owner/repository/pull/123"
+  },
   "metrics": {
-    "durationMs": 12345,
-    "peakContextTokens": 8192,
-    "inputTokens": 12000,
-    "outputTokens": 2400,
-    "llmRequests": 3
+    "durationMs": 42000,
+    "peakContextTokens": 32000,
+    "inputTokens": 50000,
+    "outputTokens": 8000,
+    "llmRequests": 4
+  },
+  "error": null
+}
+```
+
+A failed run exits non-zero and uses the same shape. For example, a run that committed and pushed its changes but failed to create a pull request emits:
+
+```json
+{
+  "schemaVersion": 1,
+  "status": "failed",
+  "task": {
+    "id": "AIEXEC-123",
+    "repository": "owner/repository",
+    "baseBranch": "main"
+  },
+  "execution": {
+    "model": "ollama/qwen3.8:27b-64k",
+    "contextLimitTokens": 65536
+  },
+  "delivery": {
+    "branch": "ai/AIEXEC-123",
+    "commit": "abc123",
+    "pullRequest": null
+  },
+  "metrics": {
+    "durationMs": 42000,
+    "peakContextTokens": 32000,
+    "inputTokens": 50000,
+    "outputTokens": 8000,
+    "llmRequests": 4
+  },
+  "error": {
+    "stage": "pull-request",
+    "message": "Failed to create pull request"
   }
 }
 ```
 
-`contextLimitTokens` is configuration, not a measured metric. It is a JSON number
-when `MODEL_CONTEXT_LIMIT` is configured and `null` when the worker relies on
-OpenCode's provider/model defaults. `peakContextTokens` remains the measured maximum
-input-side context observed across individual model requests.
+All sections and fields are always present. `null` means unknown, unavailable, or not yet created; zero is a measured value. `delivery.commit` proves local commit success, `delivery.branch` proves push success, and `delivery.pullRequest` proves pull-request creation.
 
-`durationMs` is measured from Linux `/proc/uptime`, so the supported container uses a monotonic clock that is unaffected by wall-clock adjustments. Its validity is checked before commit, push, or pull-request creation. A wall-clock fallback exists only for disposable non-Linux harnesses. The token fields are JSON `null` when complete, valid persisted usage is unavailable.
+### `task`
 
-Token metrics are calculated from valid `step_finish`/`step-finish` records in the persisted `opencode export <sessionID>` data:
+`task.id`, `task.repository`, and `task.baseBranch` identify the requested work and target. A field is `null` when configuration failed before the worker established a valid value.
+
+### `execution`
+
+`execution.model` is the selected OpenCode provider/model identifier. `execution.contextLimitTokens` is configuration rather than measured usage. It is a JSON number when `MODEL_CONTEXT_LIMIT` is configured and valid, and `null` when the worker relies on OpenCode defaults or rejects the value.
+
+### `delivery`
+
+Delivery fields report completed artifacts. `delivery.commit` is recorded after `git commit` succeeds, `delivery.branch` after `git push` succeeds, and `delivery.pullRequest` after pull-request creation succeeds. Until then, each field remains `null`, even when the intended branch name is known.
+
+### `metrics`
+
+`metrics.durationMs` covers OpenCode execution rather than the full container lifetime. The supported Linux container measures it with the monotonic `/proc/uptime` clock. The token fields are `null` when complete, valid persisted usage is unavailable.
+
+Token metrics are calculated from valid `step_finish`/`step-finish` records in persisted `opencode export <sessionID>` data:
 
 * per-request context = `input + cache.read + cache.write`;
 * `peakContextTokens` = maximum individual per-request context;
@@ -439,34 +491,21 @@ Token metrics are calculated from valid `step_finish`/`step-finish` records in t
 * `outputTokens` = sum of `output`;
 * `llmRequests` = count of valid step-finish records.
 
-Reasoning tokens are excluded. Persisted `opencode export <sessionID>` data is authoritative. Live `opencode run --format json` output is used for session discovery and debug metadata and may omit the final `step_finish` record.
+Reasoning tokens are excluded. Persisted session data is authoritative. Live `opencode run --format json` output is used for session discovery and debug metadata and may omit the final step-finish record.
 
-Human-readable worker logs are written to stderr. Debug output is sanitized as described above.
+### `error`
 
-The pull-request body contains only deterministic worker metadata and a static execution/metrics summary. It does not publish the raw task prompt, OpenCode events, or captured OpenCode stderr.
+Successful results contain `error: null`. Failed results contain a safe operator message and exactly one of these stages: `configuration`, `provider-connectivity`, `github-authentication`, `clone`, `base-branch`, `implementation-branch`, `implementation`, `commit`, `push`, `pull-request`, or `worker`.
 
-This distinction allows an orchestrator to treat:
+Provider names do not appear in stage values. The `worker` stage covers an unexpected wrapper failure outside a more specific stage. Error messages do not contain credentials, the task prompt, captured stderr, model event payloads, or target-repository file contents.
+
+Human-readable worker logs are written to stderr. The pull-request body contains deterministic worker metadata and a static execution and metrics summary. It does not publish the raw task prompt, OpenCode events, or captured OpenCode stderr.
 
 ```text
 stdout -> exactly one final result
 stderr -> lifecycle and sanitized debug logs
 exit code -> success/failure
 ```
-
-## Failed result
-
-A failed stage returns non-zero process status and structured JSON similar to:
-
-```json
-{
-  "status": "failed",
-  "taskId": "AIEXEC-123",
-  "stage": "implementation",
-  "error": "OpenCode exited with code 1"
-}
-```
-
-Possible stages include configuration, provider connectivity, GitHub authentication, clone, branch creation, implementation, commit, push, and pull-request creation.
 
 ## Development workflow
 

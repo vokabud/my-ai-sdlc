@@ -467,7 +467,10 @@ log "OpenCode completed successfully"
 # Verify that the agent actually changed something
 # ------------------------------------------------------------
 
-if git diff --quiet && git diff --cached --quiet; then
+if git diff --quiet \
+    && git diff --cached --quiet \
+    && [[ -z "$(git ls-files --others --exclude-standard)" ]]
+then
     fail \
         "implementation" \
         "Agent completed successfully but repository has no changes"
@@ -493,16 +496,23 @@ git diff --stat >&2
 
 log "Creating commit"
 
-git config user.name "SDLC Coding Agent" >&2
-git config user.email "sdlc-agent@users.noreply.github.com" >&2
+git config user.name "SDLC Coding Agent" \
+    >&2 \
+    || fail "commit" "Failed to configure Git user name"
+git config user.email "sdlc-agent@users.noreply.github.com" \
+    >&2 \
+    || fail "commit" "Failed to configure Git user email"
 
-git add --all >&2
+git add --all \
+    >&2 \
+    || fail "commit" "Failed to stage repository changes"
 
 git commit -m "$COMMIT_MESSAGE" \
     >&2 \
     || fail "commit" "Git commit failed"
 
-COMMIT_SHA="$(git rev-parse HEAD)"
+COMMIT_SHA="$(git rev-parse HEAD)" \
+    || fail "commit" "Failed to resolve commit SHA"
 result_record_commit "$COMMIT_SHA"
 
 log "Created commit $COMMIT_SHA"

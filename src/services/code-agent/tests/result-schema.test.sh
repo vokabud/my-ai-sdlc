@@ -4,6 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEST_ROOT="$(mktemp -d)"
+VALIDATION_STDERR="$TEST_ROOT/valid-validation.stderr"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 
 cat > "$TEST_ROOT/success.json" <<'JSON'
@@ -28,11 +29,17 @@ validate() {
   )
 }
 
-validate "$TEST_ROOT/success.json"
+validate "$TEST_ROOT/success.json" 2> "$VALIDATION_STDERR"
 
 jq '.status="failed" | .delivery.pullRequest=null | .error={stage:"pull-request",message:"Failed to create pull request"}' \
   "$TEST_ROOT/success.json" > "$TEST_ROOT/failure.json"
-validate "$TEST_ROOT/failure.json"
+validate "$TEST_ROOT/failure.json" 2>> "$VALIDATION_STDERR"
+
+if [[ -s "$VALIDATION_STDERR" ]]; then
+  printf 'FAIL: valid schema fixtures produced validation warnings\n' >&2
+  cat "$VALIDATION_STDERR" >&2
+  exit 1
+fi
 
 jq 'del(.metrics)' "$TEST_ROOT/success.json" > "$TEST_ROOT/missing-field.json"
 if validate "$TEST_ROOT/missing-field.json" 2>/dev/null; then

@@ -141,7 +141,22 @@ write_command_mocks() {
 
     cat > "$MOCK_BIN/git" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${FAIL_STAGE:-}" == "commit-config-name" \
+    && "${1:-} ${2:-}" == "config user.name" ]]; then
+    exit 1
+fi
+if [[ "${FAIL_STAGE:-}" == "commit-config-email" \
+    && "${1:-} ${2:-}" == "config user.email" ]]; then
+    exit 1
+fi
+if [[ "${FAIL_STAGE:-}" == "staging" && "${1:-} ${2:-}" == "add --all" ]]; then
+    exit 1
+fi
 if [[ "${FAIL_STAGE:-}" == "commit" && "${1:-}" == "commit" ]]; then
+    exit 1
+fi
+if [[ "${FAIL_STAGE:-}" == "commit-sha" \
+    && "${1:-} ${2:-}" == "rev-parse HEAD" ]]; then
     exit 1
 fi
 if [[ "${FAIL_STAGE:-}" == "push" && "${1:-}" == "push" ]]; then
@@ -175,7 +190,9 @@ EOF
 case "${1:-}" in
     run)
         printf 'implemented\n' > implemented.txt
-        printf 'implemented\n' >> README.md
+        if [[ "${CHANGE_MODE:-tracked-and-untracked}" != "untracked-only" ]]; then
+            printf 'implemented\n' >> README.md
+        fi
         printf '%s\n' '{"sessionID":"test-session"}'
         if [[ "${FAIL_STAGE:-}" == "implementation" ]]; then
             exit 7
@@ -202,16 +219,18 @@ assert_lifecycle_result() {
     local expected_branch="$4"
     local expected_commit_state="$5"
     local expected_pull_request="$6"
+    local expected_message="$7"
 
     jq -e \
         --arg status "$expected_status" \
         --arg stage "$expected_stage" \
         --arg branch "$expected_branch" \
         --arg commitState "$expected_commit_state" \
-        --arg pullRequest "$expected_pull_request" '
+        --arg pullRequest "$expected_pull_request" \
+        --arg message "$expected_message" '
             .schemaVersion == 1
             and .status == $status
-            and (if $status == "success" then .error == null else .error.stage == $stage end)
+            and (if $status == "success" then .error == null else .error == {stage:$stage,message:$message} end)
             and (if $branch == "null" then .delivery.branch == null else .delivery.branch == $branch end)
             and (if $commitState == "null" then .delivery.commit == null else (.delivery.commit | type) == "string" and (.delivery.commit | length) > 0 end)
             and (if $pullRequest == "null" then .delivery.pullRequest == null else .delivery.pullRequest == $pullRequest end)
@@ -233,6 +252,8 @@ run_lifecycle_case() {
     local expected_branch="$5"
     local expected_commit_state="$6"
     local expected_pull_request="$7"
+    local expected_message="$8"
+    local change_mode="${9:-tracked-and-untracked}"
     local result_file="$TEST_ROOT/$case_name.json"
     local error_file="$TEST_ROOT/$case_name.log"
     local exit_code
@@ -242,6 +263,7 @@ run_lifecycle_case() {
         PATH="$MOCK_BIN:$PATH" \
         TEST_ORIGIN="$TEST_ORIGIN" \
         FAIL_STAGE="$failure_stage" \
+        CHANGE_MODE="$change_mode" \
         SDLC_WORK_ROOT="$TEST_ROOT/work-$case_name" \
         SDLC_OPENCODE_TEMPLATE="$SERVICE_DIR/opencode.json.template" \
         REPO="owner/repository" \
@@ -271,7 +293,8 @@ run_lifecycle_case() {
         "$expected_stage" \
         "$expected_branch" \
         "$expected_commit_state" \
-        "$expected_pull_request"
+        "$expected_pull_request" \
+        "$expected_message"
 
     [[ -s "$error_file" ]] \
         || fail_test "$case_name must write operational diagnostics to stderr"
@@ -286,10 +309,15 @@ run_credential_url_failure_test
 create_origin
 write_command_mocks
 
-run_lifecycle_case implementation implementation failed implementation null null null
-run_lifecycle_case commit commit failed commit null null null
-run_lifecycle_case push push failed push null string null
-run_lifecycle_case pull-request pull-request failed pull-request ai/AIEXEC-pull-request string null
-run_lifecycle_case success '' success '' ai/AIEXEC-success string https://github.com/owner/repository/pull/1
+run_lifecycle_case implementation implementation failed implementation null null null "OpenCode exited with code 7"
+run_lifecycle_case commit-config-name commit-config-name failed commit null null null "Failed to configure Git user name"
+run_lifecycle_case commit-config-email commit-config-email failed commit null null null "Failed to configure Git user email"
+run_lifecycle_case staging staging failed commit null null null "Failed to stage repository changes"
+run_lifecycle_case commit commit failed commit null null null "Git commit failed"
+run_lifecycle_case commit-sha commit-sha failed commit null null null "Failed to resolve commit SHA"
+run_lifecycle_case push push failed push null string null "Git push failed"
+run_lifecycle_case pull-request pull-request failed pull-request ai/AIEXEC-pull-request string null "Failed to create pull request"
+run_lifecycle_case success '' success '' ai/AIEXEC-success string https://github.com/owner/repository/pull/1 ''
+run_lifecycle_case untracked-only '' success '' ai/AIEXEC-untracked-only string https://github.com/owner/repository/pull/1 '' untracked-only
 
 printf 'PASS: entrypoint lifecycle tests\n'

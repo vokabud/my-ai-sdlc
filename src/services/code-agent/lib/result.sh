@@ -114,7 +114,7 @@ result_emit() {
          outputTokens: $outputTokens,
          llmRequests: $llmRequests
        },
-       error: if $status == "success" then null else {stage: $stage, message: $message} end
+       error: (if $status == "success" then null else {stage: $stage, message: $message} end)
      }'
 }
 

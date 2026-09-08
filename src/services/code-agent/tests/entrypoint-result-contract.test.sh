@@ -20,6 +20,30 @@ assert_single_json_document() {
         || fail_test "entrypoint result must be valid JSON"
 }
 
+assert_entrypoint_owns_success_exit() {
+    local -a executable_statements
+    local statement_count
+
+    mapfile -t executable_statements < <(
+        awk '
+            /^[[:space:]]*($|#)/ { next }
+            {
+                sub(/^[[:space:]]+/, "")
+                sub(/[[:space:]]+$/, "")
+                print
+            }
+        ' "$SERVICE_DIR/entrypoint.sh"
+    )
+    statement_count="${#executable_statements[@]}"
+
+    (( statement_count >= 2 )) \
+        || fail_test "entrypoint must end with result emission and an explicit process exit"
+    [[ "${executable_statements[statement_count - 1]}" == "exit 0" ]] \
+        || fail_test "entrypoint must explicitly own the successful exit status"
+    [[ "${executable_statements[statement_count - 2]}" == "result_emit_success" ]] \
+        || fail_test "entrypoint must emit the success result before exiting"
+}
+
 run_unsupported_command_test() {
     local result_file="$TEST_ROOT/unsupported.json"
     local error_file="$TEST_ROOT/unsupported.log"
@@ -204,6 +228,7 @@ run_success_exit_test() {
         || fail_test "successful entrypoint must emit the completed result contract"
 }
 
+assert_entrypoint_owns_success_exit
 run_unsupported_command_test
 run_credential_url_failure_test
 run_success_exit_test

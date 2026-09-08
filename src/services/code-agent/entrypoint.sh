@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-WORK_ROOT="/work"
+WORK_ROOT="${SDLC_WORK_ROOT:-/work}"
 WORKSPACE="${WORK_ROOT}/repo"
+OPENCODE_TEMPLATE="${SDLC_OPENCODE_TEMPLATE:-/opt/sdlc/opencode.json.template}"
 CONFIG_FILE="${WORKSPACE}/opencode.json"
 OPENCODE_EVENTS_FILE="/tmp/opencode-events.jsonl"
 OPENCODE_SESSION_FILE="/tmp/opencode-session.json"
@@ -360,7 +361,7 @@ git checkout -b "$BRANCH" \
 log "Preparing OpenCode configuration"
 
 prepare_opencode_config \
-    /opt/sdlc/opencode.json.template \
+    "$OPENCODE_TEMPLATE" \
     "$CONFIG_FILE" \
     "$MODEL" \
     "$MODEL_CONTEXT_LIMIT" \

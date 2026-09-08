@@ -40,13 +40,9 @@ jq -e '
     exit 1
 }
 
-(
-    cd "$SERVICE_DIR"
-    npm exec -- ajv validate \
-        --spec=draft2020 \
-        -s result.schema.json \
-        -d "$RESULT_FILE" >/dev/null
-) || {
+python3 "$SCRIPT_DIR/validate-result-schema.py" \
+    "$SERVICE_DIR/result.schema.json" \
+    "$RESULT_FILE" || {
     printf 'FAIL: invalid context limit result must match result.schema.json\n' >&2
     exit 1
 }

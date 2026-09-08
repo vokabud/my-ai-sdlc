@@ -59,5 +59,3 @@ CodeCoverage/
 TestResult.xml
 nunit-*.xml
 
-# Node test dependencies
-node_modules/

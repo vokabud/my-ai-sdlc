@@ -269,7 +269,7 @@ Check the installed tooling:
 podman run --rm `
   --entrypoint bash `
   localhost/my-sdlc-agent:0.3 `
-  -c 'dotnet --list-sdks && dotnet --list-runtimes && node --version && git --version && gh --version && rg --version && opencode --version'
+  -c 'dotnet --list-sdks && dotnet --list-runtimes && node --version && python3 -c "from jsonschema import Draft202012Validator" && git --version && gh --version && rg --version && opencode --version'
 ```
 
 The worker currently expects the image to contain at least:
@@ -277,6 +277,7 @@ The worker currently expects the image to contain at least:
 * .NET 8 SDK/runtime
 * .NET 10 SDK/runtime
 * Node.js
+* Python 3 with jsonschema
 * Git
 * GitHub CLI
 * ripgrep

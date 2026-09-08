@@ -16,13 +16,10 @@ fail_test() {
 validate_result_schema() {
     local result_file="$1"
 
-    (
-        cd "$SERVICE_DIR"
-        npm exec -- ajv validate \
-            --spec=draft2020 \
-            -s result.schema.json \
-            -d "$result_file" >/dev/null
-    ) || fail_test "entrypoint result must match result.schema.json"
+    python3 "$SCRIPT_DIR/validate-result-schema.py" \
+        "$SERVICE_DIR/result.schema.json" \
+        "$result_file" \
+        || fail_test "entrypoint result must match result.schema.json"
 }
 
 assert_single_json_document() {

@@ -15,6 +15,7 @@ RUN apt-get update \
         git \
         grep \
         jq \
+        python3-jsonschema \
         ripgrep \
         findutils \
         procps \
@@ -85,6 +86,7 @@ RUN dotnet --list-sdks \
     && git --version \
     && gh --version \
     && rg --version \
+    && python3 -c 'from jsonschema import Draft202012Validator' \
     && opencode --version
 
 ENTRYPOINT ["/usr/local/bin/sdlc-agent"]

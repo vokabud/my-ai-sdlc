@@ -20,13 +20,9 @@ cat > "$TEST_ROOT/success.json" <<'JSON'
 JSON
 
 validate() {
-  (
-    cd "$SERVICE_DIR"
-    npm exec -- ajv validate \
-      --spec=draft2020 \
-      -s result.schema.json \
-      -d "$1" >/dev/null
-  )
+  python3 "$SCRIPT_DIR/validate-result-schema.py" \
+    "$SERVICE_DIR/result.schema.json" \
+    "$1"
 }
 
 validate "$TEST_ROOT/success.json" 2> "$VALIDATION_STDERR"

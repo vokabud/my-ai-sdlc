@@ -124,6 +124,7 @@ The current baseline includes:
 .NET 8
 .NET 10
 Node.js
+Python 3 with jsonschema
 Git
 GitHub CLI
 ripgrep

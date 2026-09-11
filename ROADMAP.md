@@ -4,28 +4,15 @@ This roadmap captures the current direction of the AI SDLC platform. It is inten
 
 ## Now
 
-### Make the code agent aware of its context limit
-
-Accept the model context-window limit as a worker parameter, initially through an environment variable such as `MODEL_CONTEXT_LIMIT`.
-
-The worker should:
-
-- validate that the value is a positive integer;
-- include the configured limit in the coding prompt;
-- instruct the agent to preserve enough context to finish and verify the task;
-- include the configured limit in the structured result and metrics.
-
-The SDLC orchestrator should remain the source of truth for this value. The worker should not infer it from the model name because deployments of the same model may have different limits.
-
-## Next
-
 ### Stabilize the worker result contract
 
-- add a result `schemaVersion`;
-- keep success, failure, and metrics fields consistent across model providers;
-- distinguish configured limits from measured usage;
-- normalize failure stages and error categories;
-- document which metrics are guaranteed and which are provider-dependent.
+- publish a versioned JSON Schema;
+- use the same result shape for success and failure;
+- report only completed delivery artifacts;
+- normalize provider-independent failure stages;
+- preserve available metrics on failed runs.
+
+## Next
 
 ### Add execution budgets
 
@@ -51,6 +38,14 @@ The SDLC orchestrator should remain the source of truth for this value. The work
 - retry and local-to-cloud fallback policies;
 - human approval and review workflows;
 - task state transitions and audit history.
+
+### Durable delivery artifacts and retries
+
+- persist a Git bundle or durable workspace reference outside the ephemeral worker;
+- retry push and pull-request creation without rerunning the LLM;
+- make delivery retries idempotent;
+- define artifact ownership, integrity checks, retention, and cleanup;
+- reuse short-lived repository credentials during each retry attempt.
 
 ### Observability and cost control
 

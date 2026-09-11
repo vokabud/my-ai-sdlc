@@ -124,6 +124,7 @@ The current baseline includes:
 .NET 8
 .NET 10
 Node.js
+Python 3 with jsonschema
 Git
 GitHub CLI
 ripgrep
@@ -156,32 +157,39 @@ Avoid putting application-specific implementation logic into the worker.
 
 ## Output contract
 
-Success should produce structured JSON containing at least:
+[`result.schema.json`](result.schema.json) is the authoritative version 1 output contract. The entrypoint writes exactly one result document to stdout and operational logs to stderr.
+
+Success uses the nested contract and records completed delivery artifacts:
 
 ```json
 {
+  "schemaVersion": 1,
   "status": "success",
-  "taskId": "...",
-  "repository": "...",
-  "branch": "...",
-  "commit": "...",
-  "pullRequest": "...",
-  "model": "..."
+  "task": {"id": "AIEXEC-123", "repository": "owner/repository", "baseBranch": "main"},
+  "execution": {"model": "openai/example", "contextLimitTokens": 65536},
+  "delivery": {"branch": "ai/AIEXEC-123", "commit": "abc123", "pullRequest": "https://github.com/owner/repository/pull/1"},
+  "metrics": {"durationMs": 42, "peakContextTokens": 30, "inputTokens": 20, "outputTokens": 10, "llmRequests": 1},
+  "error": null
 }
 ```
 
-Failure should identify the stage:
+Failure uses the same sections. Unavailable or not-yet-created values remain `null`:
 
 ```json
 {
+  "schemaVersion": 1,
   "status": "failed",
-  "taskId": "...",
-  "stage": "...",
-  "error": "..."
+  "task": {"id": "AIEXEC-123", "repository": "owner/repository", "baseBranch": "main"},
+  "execution": {"model": "openai/example", "contextLimitTokens": null},
+  "delivery": {"branch": null, "commit": null, "pullRequest": null},
+  "metrics": {"durationMs": 42, "peakContextTokens": null, "inputTokens": null, "outputTokens": null, "llmRequests": null},
+  "error": {"stage": "commit", "message": "Git commit failed"}
 }
 ```
 
-Treat this output as an API contract with the future SDLC orchestrator.
+All sections and fields are always present. Record a delivery field only after that step succeeds: `delivery.commit` proves local commit success, `delivery.branch` proves push success, and `delivery.pullRequest` proves pull-request creation.
+
+Treat this output as an API contract with the future SDLC orchestrator. Use only failure stages allowed by the schema.
 
 Avoid changing it unnecessarily.
 

@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-RESULT_FILE="$(mktemp)"
+RESULT_FILE="$(mktemp --suffix=.json)"
 ERROR_FILE="$(mktemp)"
 trap 'rm -f "$RESULT_FILE" "$ERROR_FILE"' EXIT
 
@@ -27,11 +27,23 @@ set -e
 }
 
 jq -e '
-    .status == "failed"
-    and .stage == "configuration"
-    and (.error | contains("MODEL_CONTEXT_LIMIT"))
+    .schemaVersion == 1
+    and .status == "failed"
+    and .task == {id:"context-limit-test",repository:"owner/repository",baseBranch:"main"}
+    and .execution == {model:"ollama/qwen3.8:27b-64k",contextLimitTokens:null}
+    and .delivery == {branch:null,commit:null,pullRequest:null}
+    and .metrics == {durationMs:null,peakContextTokens:null,inputTokens:null,outputTokens:null,llmRequests:null}
+    and .error.stage == "configuration"
+    and (.error.message | contains("MODEL_CONTEXT_LIMIT"))
 ' "$RESULT_FILE" >/dev/null || {
     printf 'FAIL: invalid context limit must return a configuration failure\n' >&2
+    exit 1
+}
+
+python3 "$SCRIPT_DIR/validate-result-schema.py" \
+    "$SERVICE_DIR/result.schema.json" \
+    "$RESULT_FILE" || {
+    printf 'FAIL: invalid context limit result must match result.schema.json\n' >&2
     exit 1
 }
 

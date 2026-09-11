@@ -27,6 +27,9 @@ validate() {
 
 validate "$TEST_ROOT/success.json" 2> "$VALIDATION_STDERR"
 
+jq '.delivery.pullRequest=null' "$TEST_ROOT/success.json" > "$TEST_ROOT/success-no-pr.json"
+validate "$TEST_ROOT/success-no-pr.json" 2>> "$VALIDATION_STDERR"
+
 jq '.status="failed" | .delivery.pullRequest=null | .error={stage:"pull-request",message:"Failed to create pull request"}' \
   "$TEST_ROOT/success.json" > "$TEST_ROOT/failure.json"
 validate "$TEST_ROOT/failure.json" 2>> "$VALIDATION_STDERR"

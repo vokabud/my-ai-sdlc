@@ -6,12 +6,12 @@ The worker is packaged as a container and is designed to:
 
 1. Receive a coding task.
 2. Clone the target GitHub repository.
-3. Create an isolated implementation branch.
+3. Check out the implementation branch, or create it from the base branch if absent.
 4. Run OpenCode with the configured model.
 5. Let the coding agent inspect, modify, build, and test the repository.
 6. Commit the resulting changes.
 7. Push the branch.
-8. Create a pull request.
+8. Optionally create a pull request, or return an existing open pull request.
 9. Return a machine-readable JSON result.
 10. Exit.
 
@@ -84,13 +84,12 @@ The coding agent must not:
 * checking model provider connectivity;
 * authenticating with GitHub;
 * cloning the repository;
-* checking out the base branch;
-* creating the implementation branch;
+* checking out the existing implementation branch or creating it from the base branch;
 * invoking OpenCode;
 * checking that changes were actually produced;
 * committing changes;
 * pushing the branch;
-* creating the pull request;
+* optionally creating or finding the pull request;
 * returning structured output.
 
 This separation is intentional.
@@ -216,6 +215,27 @@ Default:
 
 ```text
 ai/<TASK_ID>
+```
+
+If the branch exists on `origin`, the worker continues from its latest commit.
+Otherwise, it creates the branch from the latest `BASE_BRANCH`. Existing branch
+history is preserved; the worker does not merge the base branch or force-push.
+A failed remote lookup stops the worker instead of being treated as a missing branch.
+
+`CREATE_PR`
+
+Default: `true`. Only `true` and `false` are accepted.
+
+With `true`, after commit and push the worker returns an existing open PR for
+`BRANCH` into `BASE_BRANCH`, or creates one if none exists. The branches must differ.
+With `false`, it still commits and pushes, but skips PR operations and returns
+`status: "success"` with `delivery.pullRequest: null`.
+
+For example, add these options to the container invocation to continue work without a PR:
+
+```powershell
+-e BRANCH="feature/my-task" `
+-e CREATE_PR="false" `
 ```
 
 `COMMIT_MESSAGE`
@@ -466,7 +486,7 @@ A failed run exits non-zero and uses the same shape. For example, a run that com
 }
 ```
 
-All sections and fields are always present. `null` means unknown, unavailable, or not yet created; zero is a measured value. `delivery.commit` proves local commit success, `delivery.branch` proves push success, and `delivery.pullRequest` proves pull-request creation.
+All sections and fields are always present. `null` means unknown, unavailable, or not yet created; zero is a measured value. `delivery.commit` proves local commit success, `delivery.branch` proves push success, and `delivery.pullRequest` identifies the created or reused open pull request; it remains `null` when `CREATE_PR=false`.
 
 ### `task`
 
@@ -478,7 +498,7 @@ All sections and fields are always present. `null` means unknown, unavailable, o
 
 ### `delivery`
 
-Delivery fields report completed artifacts. `delivery.commit` is recorded after `git commit` succeeds, `delivery.branch` after `git push` succeeds, and `delivery.pullRequest` after pull-request creation succeeds. Until then, each field remains `null`, even when the intended branch name is known.
+Delivery fields report completed artifacts. `delivery.commit` is recorded after `git commit` succeeds, `delivery.branch` after `git push` succeeds, and `delivery.pullRequest` after a pull request is created or an existing open pull request is found. Until then, each field remains `null`, even when the intended branch name is known.
 
 ### `metrics`
 

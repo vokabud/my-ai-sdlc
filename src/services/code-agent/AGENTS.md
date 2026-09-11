@@ -9,12 +9,12 @@ The intended lifecycle is:
 ```text
 receive task
 -> clone repository
--> create branch
+-> check out existing branch or create it from base
 -> run OpenCode
 -> verify changes exist
 -> commit
 -> push
--> create pull request
+-> optionally create or reuse open pull request
 -> return JSON
 -> exit
 ```
@@ -40,10 +40,10 @@ Keep a strict separation between AI coding and deterministic delivery.
 * provider connectivity checks;
 * GitHub authentication;
 * repository clone;
-* branch creation;
+* branch checkout or creation;
 * commit;
 * push;
-* pull-request creation;
+* optional pull-request creation or lookup;
 * final structured result.
 
 Do not move commit, push, or PR creation into the LLM prompt.
@@ -187,7 +187,7 @@ Failure uses the same sections. Unavailable or not-yet-created values remain `nu
 }
 ```
 
-All sections and fields are always present. Record a delivery field only after that step succeeds: `delivery.commit` proves local commit success, `delivery.branch` proves push success, and `delivery.pullRequest` proves pull-request creation.
+All sections and fields are always present. Record a delivery field only after that step succeeds: `delivery.commit` proves local commit success, `delivery.branch` proves push success, and `delivery.pullRequest` identifies the created or reused open pull request; it remains `null` when `CREATE_PR=false`.
 
 Treat this output as an API contract with the future SDLC orchestrator. Use only failure stages allowed by the schema.
 
@@ -204,7 +204,7 @@ Before considering a worker change complete:
 5. Confirm relevant repository build/tests execute.
 6. Confirm the wrapper creates the commit.
 7. Confirm the wrapper pushes the branch.
-8. Confirm the wrapper creates the pull request.
+8. Confirm CREATE_PR=true creates or reuses an open pull request, and CREATE_PR=false skips PR operations.
 9. Confirm the worker returns valid JSON.
 10. Confirm the container exits.
 

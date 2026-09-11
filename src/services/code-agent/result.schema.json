@@ -74,7 +74,7 @@
         "properties": {
           "task": {"type": "object", "properties": {"id":{"type":"string"},"repository":{"type":"string"},"baseBranch":{"type":"string"}}},
           "execution": {"type": "object", "properties": {"model":{"type":"string"}}},
-          "delivery": {"type": "object", "properties": {"branch":{"type":"string"},"commit":{"type":"string"},"pullRequest":{"type":"string"}}},
+          "delivery": {"type": "object", "properties": {"branch":{"type":"string"},"commit":{"type":"string"},"pullRequest":{"type":["string","null"]}}},
           "metrics": {"type": "object", "properties": {"durationMs":{"type":"integer"}}},
           "error": {"type": "null"}
         }

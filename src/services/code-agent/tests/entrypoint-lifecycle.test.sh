@@ -159,6 +159,9 @@ fi
 if [[ "${FAIL_STAGE:-}" == "push" && "${1:-}" == "push" ]]; then
     exit 1
 fi
+if [[ "${FAIL_STAGE:-}" == "branch-query" && "${1:-}" == "ls-remote" ]]; then
+    exit 128
+fi
 exec /usr/bin/git "$@"
 EOF
 
@@ -171,7 +174,19 @@ case "${1:-} ${2:-}" in
     "repo clone")
         exec /usr/bin/git clone "$TEST_ORIGIN" "$4"
         ;;
+    "pr list")
+        [[ "${CREATE_PR:-true}" == "false" ]] && exit 2
+        [[ "${FAIL_STAGE:-}" == "pr-query" ]] && exit 1
+        if [[ "${TEST_FORK_COLLISION:-false}" == "true" ]]; then
+            while [[ $# -gt 0 && "$1" != "--jq" ]]; do shift; done
+            [[ $# -eq 2 ]] || exit 2
+            printf '%s\n' '[{"url":"https://github.com/owner/repository/pull/99","isCrossRepository":true},{"url":"https://github.com/owner/repository/pull/42","isCrossRepository":false}]' | jq -r "$2"
+            exit
+        fi
+        printf '%s' "${TEST_EXISTING_PR:-}"
+        ;;
     "pr create")
+        [[ "${CREATE_PR:-true}" == "false" || -n "${TEST_EXISTING_PR:-}" ]] && exit 2
         [[ "${FAIL_STAGE:-}" == "pull-request" ]] && exit 1
         printf '%s\n' "https://github.com/owner/repository/pull/1"
         ;;
@@ -316,5 +331,40 @@ run_lifecycle_case push push failed push null string null "Git push failed"
 run_lifecycle_case pull-request pull-request failed pull-request ai/AIEXEC-pull-request string null "Failed to create pull request"
 run_lifecycle_case success '' success '' ai/AIEXEC-success string https://github.com/owner/repository/pull/1 ''
 run_lifecycle_case untracked-only '' success '' ai/AIEXEC-untracked-only string https://github.com/owner/repository/pull/1 '' untracked-only
+
+# Repeated runs must preserve the previous remote tip and add a new commit.
+BRANCH=feature/reused CREATE_PR=false run_lifecycle_case new-no-pr '' success '' feature/reused string null ''
+previous_tip="$(/usr/bin/git --git-dir="$TEST_ORIGIN" rev-parse refs/heads/feature/reused)"
+BRANCH=feature/reused CREATE_PR=false run_lifecycle_case existing-no-pr '' success '' feature/reused string null ''
+new_tip="$(/usr/bin/git --git-dir="$TEST_ORIGIN" rev-parse refs/heads/feature/reused)"
+[[ "$previous_tip" != "$new_tip" ]] || fail_test 'existing branch must receive a new commit'
+[[ "$(/usr/bin/git --git-dir="$TEST_ORIGIN" rev-parse "$new_tip^")" == "$previous_tip" ]] \
+    || fail_test 'existing branch history must be preserved'
+BRANCH=feature/reused CREATE_PR=true run_lifecycle_case existing-create-pr '' success '' feature/reused string https://github.com/owner/repository/pull/1 ''
+BRANCH=feature/reused CREATE_PR=true TEST_EXISTING_PR=https://github.com/owner/repository/pull/42 \
+    run_lifecycle_case existing-pr '' success '' feature/reused string https://github.com/owner/repository/pull/42 ''
+BRANCH=feature/reused CREATE_PR=true TEST_FORK_COLLISION=true \
+    run_lifecycle_case fork-collision '' success '' feature/reused string https://github.com/owner/repository/pull/42 ''
+run_lifecycle_case pr-query pr-query failed pull-request ai/AIEXEC-pr-query string null 'Failed to check existing pull requests'
+
+# Early failures must stop before OpenCode or any delivery operation.
+for scenario in invalid-flag branch-query; do
+    result_file="$TEST_ROOT/$scenario.json"
+    flag=true
+    [[ "$scenario" == invalid-flag ]] && flag=maybe
+    if env PATH="$MOCK_BIN:$PATH" TEST_ORIGIN="$TEST_ORIGIN" FAIL_STAGE="$scenario" \
+        CREATE_PR="$flag" REPO=owner/repository TASK_ID="$scenario" TASK="$TEST_TASK" \
+        GH_TOKEN=test-token MODEL=openai/test-model OPENAI_API_KEY=test-key \
+        SDLC_WORK_ROOT="$TEST_ROOT/work-$scenario" \
+        SDLC_OPENCODE_TEMPLATE="$SERVICE_DIR/opencode.json.template" \
+        "$SERVICE_DIR/entrypoint.sh" implement > "$result_file" 2> "$TEST_ROOT/$scenario.log"; then
+        fail_test "$scenario must fail"
+    fi
+    stage=implementation-branch
+    [[ "$scenario" == invalid-flag ]] && stage=configuration
+    validate_result_schema "$result_file"
+    jq -e --arg stage "$stage" '.status == "failed" and .error.stage == $stage and .delivery == {branch:null,commit:null,pullRequest:null}' "$result_file" >/dev/null
+    [[ ! -e "$TEST_ROOT/work-$scenario/repo/implemented.txt" ]] || fail_test "$scenario ran OpenCode"
+done
 
 printf 'PASS: entrypoint lifecycle tests\n'

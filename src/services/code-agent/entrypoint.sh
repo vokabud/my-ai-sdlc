@@ -159,6 +159,10 @@ Optional environment variables:
   BRANCH
       Default: ai/<TASK_ID>
 
+  CREATE_PR
+      Default: true
+      Supported: true, false
+
   COMMIT_MESSAGE
       Default: AI implementation for <TASK_ID>
 
@@ -170,6 +174,7 @@ EOF
 LOG_LEVEL="${LOG_LEVEL:-info}"
 MODEL_CONTEXT_LIMIT="${MODEL_CONTEXT_LIMIT:-}"
 BASE_BRANCH="${BASE_BRANCH:-main}"
+CREATE_PR="${CREATE_PR-true}"
 
 result_init \
     "${TASK_ID:-}" \
@@ -193,6 +198,10 @@ require_env TASK
 require_env GH_TOKEN
 require_env MODEL
 
+if [[ "$CREATE_PR" != "true" && "$CREATE_PR" != "false" ]]; then
+    fail "configuration" "CREATE_PR must be true or false"
+fi
+
 if [[ "$LOG_LEVEL" != "info" && "$LOG_LEVEL" != "debug" ]]; then
     fail "configuration" "Unsupported LOG_LEVEL='$LOG_LEVEL'. Expected info or debug"
 fi
@@ -208,6 +217,11 @@ if [[ -n "$MODEL_CONTEXT_LIMIT" ]]; then
 fi
 
 BRANCH="${BRANCH:-ai/${TASK_ID}}"
+git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 \
+    || fail "configuration" "Invalid BRANCH"
+if [[ "$CREATE_PR" == "true" && "$BRANCH" == "$BASE_BRANCH" ]]; then
+    fail "configuration" "BRANCH must differ from BASE_BRANCH when CREATE_PR=true"
+fi
 COMMIT_MESSAGE="${COMMIT_MESSAGE:-AI implementation for ${TASK_ID}}"
 PR_TITLE="${PR_TITLE:-AI implementation: ${TASK_ID}}"
 
@@ -242,6 +256,7 @@ log "Task:       $TASK_ID"
 log "Repository: $REPO"
 log "Base:       $BASE_BRANCH"
 log "Branch:     $BRANCH"
+log "Create PR:  $CREATE_PR"
 log "Model:      $MODEL"
 if [[ -n "$MODEL_CONTEXT_LIMIT" ]]; then
     log "Context:    $MODEL_CONTEXT_LIMIT tokens"
@@ -310,48 +325,37 @@ cd "$WORKSPACE"
 
 
 # ------------------------------------------------------------
-# Checkout latest base branch
-# ------------------------------------------------------------
-
-log "Checking out base branch '$BASE_BRANCH'"
-
-git fetch origin "$BASE_BRANCH" \
-    >&2 \
-    || fail "base-branch" "Failed to fetch base branch '$BASE_BRANCH'"
-
-git checkout "$BASE_BRANCH" \
-    >&2 \
-    || fail "base-branch" "Failed to checkout base branch '$BASE_BRANCH'"
-
-git reset --hard "origin/$BASE_BRANCH" \
-    >&2 \
-    || fail "base-branch" "Failed to reset to origin/$BASE_BRANCH"
-
-
-# ------------------------------------------------------------
-# Make sure target branch does not already exist
+# Select existing target branch or create it from the latest base
 # ------------------------------------------------------------
 
 if git ls-remote \
     --exit-code \
     --heads \
     origin \
-    "$BRANCH" \
+    "refs/heads/$BRANCH" \
     >/dev/null 2>&1
 then
-    fail "implementation-branch" "Remote branch '$BRANCH' already exists"
+    log "Using existing branch '$BRANCH'"
+    git fetch origin "refs/heads/$BRANCH" \
+        >&2 \
+        || fail "implementation-branch" "Failed to fetch branch '$BRANCH'"
+    git checkout -B "$BRANCH" FETCH_HEAD \
+        >&2 \
+        || fail "implementation-branch" "Failed to checkout branch '$BRANCH'"
+else
+    BRANCH_QUERY_EXIT=$?
+    if [[ "$BRANCH_QUERY_EXIT" -ne 2 ]]; then
+        fail "implementation-branch" "Failed to check remote branch '$BRANCH'"
+    fi
+
+    log "Creating branch '$BRANCH' from '$BASE_BRANCH'"
+    git fetch origin "refs/heads/$BASE_BRANCH" \
+        >&2 \
+        || fail "base-branch" "Failed to fetch base branch '$BASE_BRANCH'"
+    git checkout -B "$BRANCH" FETCH_HEAD \
+        >&2 \
+        || fail "implementation-branch" "Failed to create branch '$BRANCH'"
 fi
-
-
-# ------------------------------------------------------------
-# Create implementation branch
-# ------------------------------------------------------------
-
-log "Creating branch '$BRANCH'"
-
-git checkout -b "$BRANCH" \
-    >&2 \
-    || fail "implementation-branch" "Failed to create branch '$BRANCH'"
 
 
 # ------------------------------------------------------------
@@ -535,10 +539,21 @@ result_record_push "$BRANCH"
 
 
 # ------------------------------------------------------------
-# Build pull request body
+# Optionally reuse or create a pull request
 # ------------------------------------------------------------
 
-PR_BODY="$(cat <<EOF
+if [[ "$CREATE_PR" == "true" ]]; then
+    PR_URL="$(gh pr list \
+        --repo "$REPO" \
+        --state open \
+        --base "$BASE_BRANCH" \
+        --head "$BRANCH" \
+        --json url,isCrossRepository \
+        --jq '[.[] | select(.isCrossRepository == false)][0].url // empty'
+    )" || fail "pull-request" "Failed to check existing pull requests"
+
+    if [[ -z "$PR_URL" ]]; then
+        PR_BODY="$(cat <<EOF
 Automated implementation for task \`${TASK_ID}\`.
 
 ### Worker
@@ -557,27 +572,25 @@ Automated implementation for task \`${TASK_ID}\`.
 - Output tokens: \`$(metric_value_or_unavailable "$OUTPUT_TOKENS")\`
 - LLM requests: \`$(metric_value_or_unavailable "$LLM_REQUESTS")\`
 EOF
-)"
+        )"
 
+        log "Creating pull request"
+        PR_URL="$(
+            gh pr create \
+                --repo "$REPO" \
+                --base "$BASE_BRANCH" \
+                --head "$BRANCH" \
+                --title "$PR_TITLE" \
+                --body "$PR_BODY"
+        )" || fail "pull-request" "Failed to create pull request"
+    fi
 
-# ------------------------------------------------------------
-# Create pull request
-# ------------------------------------------------------------
+    result_record_pull_request "$PR_URL"
 
-log "Creating pull request"
-
-PR_URL="$(
-    gh pr create \
-        --repo "$REPO" \
-        --base "$BASE_BRANCH" \
-        --head "$BRANCH" \
-        --title "$PR_TITLE" \
-        --body "$PR_BODY"
-)" || fail "pull-request" "Failed to create pull request"
-
-result_record_pull_request "$PR_URL"
-
-log "Pull request created: $PR_URL"
+    log "Pull request: $PR_URL"
+else
+    log "Pull request creation disabled"
+fi
 
 
 # ------------------------------------------------------------
